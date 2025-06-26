@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Heart Birthday Surprise</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a1a;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            touch-action: none; /* Prevents default touch actions like scrolling/zooming */
+            user-select: none;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+            pointer-events: auto; /* Explicitly allow pointer events on the canvas */
+        }
+
+        #birthdayText {
+            position: absolute;
+            top: 45%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: clamp(32px, 8vw, 64px);
+            font-weight: 900;
+            text-shadow:
+                0 0 10px rgba(255,255,255,0.9),
+                0 0 20px rgba(255,255,255,0.7),
+                0 0 30px rgba(255,255,255,0.5);
+            z-index: 200;
+            opacity: 0;
+            display: block;
+            pointer-events: none; /* Crucial: Prevents this element from blocking clicks */
+            text-align: center;
+            line-height: 1.2;
+            letter-spacing: 3px;
+            white-space: nowrap;
+        }
+
+        @keyframes fadeInGlow {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.3);
+                filter: blur(10px);
+            }
+            50% {
+                opacity: 0.8;
+                transform: translate(-50%, -50%) scale(1.1);
+                filter: blur(2px);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+                filter: blur(0px);
+            }
+        }
+
+        #videoBackground {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+            opacity: 0; /* Initial opacity */
+            transition: opacity 3s ease;
+        }
+
+        @media (max-width: 768px) {
+            #birthdayText {
+                font-size: clamp(24px, 6vw, 48px);
+                top: 40%;
+                padding: 0 20px;
+                white-space: normal;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="birthdayText">HAPPY BIRTHDAY NUN!!!!</div>
+        <!-- Video source will be set by JavaScript -->
+        <video id="videoBackground" loop muted>
+            <!-- <source src="video1.mp4" type="video/mp4"> -->
+        </video>
+    </div>
+
+    <!-- Audio source will be set by JavaScript -->
+    <audio id="birthdayMusic" loop>
+        <!-- <source src="musik1.mp3" type="audio/mpeg"> -->
+    </audio>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // ====================================================================
+        // DATABASE MEDIA FILES - ATUR DI SINI YA BRO!
+        // ====================================================================
+
+        // Daftar nama file foto yang akan digunakan untuk bola foto
+        // Pastikan nama file di sini sesuai dengan yang ada di folder Anda.
+        // Contoh: ['foto1.jpg', 'foto2.jpg', 'foto3.jpg', ...]
+        const photoFileNames = [
+            'foto1.jpg', 'foto2.jpg', 'foto3.jpg', 'foto4.jpg', 'foto5.jpg',
+            'foto6.jpg', 'foto7.jpg', 'foto8.jpg', 'foto9.jpg', 'foto10.jpg'
+            // Tambahkan atau hapus nama file foto di sini sesuai kebutuhan Anda.
+            // Misalnya, jika Anda punya foto11.jpg, tambahkan ', foto11.jpg'
+        ];
+
+        // Nama file video latar belakang
+        const videoFileName = 'video1.mp4'; // Ganti jika nama file video Anda berbeda
+
+        // Nama file musik latar belakang
+        const musicFileName = 'musik1.mp3'; // Ganti jika nama file musik Anda berbeda
+
+        // ====================================================================
+        // AKHIR DARI DATABASE MEDIA FILES
+        // ====================================================================
+
+
+        let scene, camera, renderer, heart, clickCount = 0;
+        let isExploded = false;
+        let photos3D = [];
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        let currentRotationX = 0, currentRotationY = 0;
+        let isMouseDown = false;
+        let isTouching = false;
+        let touchStartX = 0, touchStartY = 0;
+        let touchMoveThreshold = 10;
+        let photoBall;
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            // Set video and audio sources dynamically
+            const videoElement = document.getElementById('videoBackground');
+            videoElement.innerHTML = `<source src="${videoFileName}" type="video/mp4">`;
+
+            const audioElement = document.getElementById('birthdayMusic');
+            audioElement.innerHTML = `<source src="${musicFileName}" type="audio/mpeg">`;
+
+
+            createHeart();
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            const pointLight = new THREE.PointLight(0xff4444, 0.6, 100);
+            pointLight.position.set(0, 0, 10);
+            scene.add(pointLight);
+
+            camera.position.z = 6;
+
+            setupControls();
+            animate();
+        }
+
+        function setupControls() {
+            document.addEventListener('mousedown', onMouseDown, false);
+            document.addEventListener('mousemove', onMouseMove, false);
+            document.addEventListener('mouseup', onMouseUp, false);
+
+            renderer.domElement.addEventListener('touchstart', onTouchStart, false);
+            renderer.domElement.addEventListener('touchmove', onTouchMove, false);
+            renderer.domElement.addEventListener('touchend', onTouchEnd, false);
+        }
+
+        function onMouseDown(event) {
+            event.preventDefault();
+            isMouseDown = true;
+            mouseX = event.clientX;
+            mouseY = event.clientY;
+        }
+
+        function onMouseMove(event) {
+            event.preventDefault();
+            if (!isMouseDown) return;
+            const deltaX = event.clientX - mouseX;
+            const deltaY = event.clientY - mouseY;
+            targetRotationY += deltaX * 0.01;
+            targetRotationX += deltaY * 0.01;
+            mouseX = event.clientX;
+            mouseY = event.clientY;
+        }
+
+        function onMouseUp(event) {
+            event.preventDefault();
+            isMouseDown = false;
+        }
+
+        function onTouchStart(event) {
+            event.preventDefault();
+            const touch = event.touches[0];
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+            isTouching = true;
+        }
+
+        function onTouchMove(event) {
+            event.preventDefault();
+            if (!isTouching) return;
+            const touch = event.touches[0];
+            const deltaX = touch.clientX - touchStartX;
+            const deltaY = touch.clientY - touchStartY;
+            targetRotationY += deltaX * 0.01;
+            targetRotationX += deltaY * 0.01;
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+        }
+
+        function onTouchEnd(event) {
+            event.preventDefault();
+            isTouching = false;
+            const currentTouchX = event.changedTouches[0].clientX;
+            const currentTouchY = event.changedTouches[0].clientY;
+            const distanceMoved = Math.sqrt(
+                Math.pow(currentTouchX - touchStartX, 2) +
+                Math.pow(currentTouchY - touchStartY, 2)
+            );
+            if (distanceMoved < touchMoveThreshold) {
+                handleClick();
+            }
+        }
+
+        function createHeart() {
+            const heartShape = new THREE.Shape();
+            const x = 0, y = 0;
+            heartShape.moveTo(x + 0.5, y + 0.5);
+            heartShape.bezierCurveTo(x + 0.5, y + 0.5, x + 0.4, y, x, y);
+            heartShape.bezierCurveTo(x - 0.6, y, x - 0.6, y + 0.7, x - 0.6, y + 0.7);
+            heartShape.bezierCurveTo(x - 0.6, y + 1.1, x - 0.3, y + 1.54, x + 0.5, y + 1.9);
+            heartShape.bezierCurveTo(x + 1.2, y + 1.54, x + 1.6, y + 1.1, x + 1.6, y + 0.7);
+            heartShape.bezierCurveTo(x + 1.6, y + 0.7, x + 1.6, y, x + 1, y);
+            heartShape.bezierCurveTo(x + 0.7, y, x + 0.5, y + 0.5, x + 0.5, y + 0.5);
+            const extrudeSettings = {
+                depth: 0.6, bevelEnabled: true, bevelSegments: 20, steps: 3, bevelSize: 0.15, bevelThickness: 0.1
+            };
+            const geometry = new THREE.ExtrudeGeometry(heartShape, extrudeSettings);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0xcc0000, shininess: 100, specular: 0x444444, emissive: 0x220000
+            });
+            heart = new THREE.Mesh(geometry, material);
+            heart.rotation.x = Math.PI;
+            heart.scale.set(2, 2, 2);
+            heart.castShadow = true;
+            heart.receiveShadow = true;
+            scene.add(heart);
+        }
+
+        function create3DPhotoBall() {
+            photoBall = new THREE.Group();
+
+            const radius = 4;
+            const photoCount = 500; // Jumlah total foto yang akan ditampilkan
+            const photoSize = 0.3;
+
+            // Menggunakan panjang array photoFileNames sebagai jumlah tipe gambar
+            const numImageTypes = photoFileNames.length;
+
+            for (let i = 0; i < photoCount; i++) {
+                const photoGeometry = new THREE.PlaneGeometry(photoSize, photoSize);
+
+                // Mengambil nama file foto dari array photoFileNames secara berulang
+                const imagePath = photoFileNames[i % numImageTypes];
+
+                const canvas = document.createElement('canvas');
+                canvas.width = 64; canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                // Placeholder gradient (bisa dihapus jika tidak diperlukan)
+                const hue = (i % numImageTypes) * (360 / numImageTypes);
+                const gradient = ctx.createLinearGradient(0, 0, 64, 64);
+                gradient.addColorStop(0, `hsl(${hue}, 70%, 60%)`);
+                gradient.addColorStop(1, `hsl(${hue + 60}, 70%, 80%)`);
+                ctx.fillStyle = gradient; ctx.fillRect(0, 0, 64, 64);
+                ctx.fillStyle = 'white'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
+                ctx.fillText(`Photo ${i+1}`, 32, 35);
+                const placeholderTexture = new THREE.CanvasTexture(canvas);
+
+                const photoMaterial = new THREE.MeshPhongMaterial({
+                    map: placeholderTexture,
+                    transparent: true,
+                    opacity: 0.2,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const photo = new THREE.Mesh(photoGeometry, photoMaterial);
+
+                const phi = Math.acos(1 - (2 * i) / photoCount);
+                const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+
+                photo.position.x = radius * Math.cos(theta) * Math.sin(phi);
+                photo.position.y = radius * Math.sin(theta) * Math.sin(phi);
+                photo.position.z = radius * Math.cos(phi);
+
+                photo.lookAt(photo.position.x * 2, photo.position.y * 2, photo.position.z * 2);
+
+                loadRealImage(photo, imagePath);
+
+                photoBall.add(photo);
+            }
+
+            scene.add(photoBall);
+        }
+
+        function loadRealImage(photoMesh, imagePath) {
+            const loader = new THREE.TextureLoader();
+            loader.load(
+                imagePath,
+                function(texture) {
+                    photoMesh.material.map = texture;
+                    photoMesh.material.needsUpdate = true;
+                },
+                undefined,
+                function(error) {
+                    console.log('Image loading failed:', imagePath, error);
+                }
+            );
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            currentRotationX += (targetRotationX - currentRotationX) * 0.05;
+            currentRotationY += (targetRotationY - currentRotationY) * 0.05;
+            if (heart && !isExploded) {
+                heart.rotation.y = currentRotationY;
+                heart.rotation.x = Math.PI + currentRotationX;
+                heart.rotation.z = 0;
+            }
+            if (photoBall && isExploded) {
+                photoBall.rotation.y = currentRotationY + Date.now() * 0.0005;
+                photoBall.rotation.x = currentRotationX + Date.now() * 0.0003;
+            }
+            renderer.render(scene, camera);
+        }
+
+        function explodeHeart() {
+            if (isExploded) return;
+            isExploded = true;
+            if (heart) {
+                const heartAnimation = setInterval(() => {
+                    heart.scale.multiplyScalar(0.9);
+                    heart.material.opacity -= 0.1;
+                    heart.material.transparent = true;
+                    if (heart.scale.x <= 0.1) {
+                        scene.remove(heart);
+                        clearInterval(heartAnimation);
+                    }
+                }, 50);
+            }
+            setTimeout(() => { create3DPhotoBall(); }, 500);
+            setTimeout(() => {
+                const birthdayText = document.getElementById('birthdayText');
+                birthdayText.style.animation = 'fadeInGlow 2s ease-out forwards';
+                birthdayText.style.animationDelay = '2s';
+            }, 1500);
+            setTimeout(() => {
+                const video = document.getElementById('videoBackground');
+                video.style.opacity = '0.4';
+            }, 3000);
+        }
+
+        function handleClick() {
+            if (isExploded) return;
+            clickCount++;
+            if (clickCount === 1) {
+                const music = document.getElementById('birthdayMusic');
+                music.play().catch(e => console.log('Music play failed:', e));
+                const video = document.getElementById('videoBackground');
+                video.style.opacity = '0.4';
+                video.play().catch(e => console.log('Video play failed:', e));
+            }
+            if (heart) {
+                heart.scale.set(2.3, 2.3, 2.3);
+                setTimeout(() => {
+                    if (heart) heart.scale.set(2, 2, 2);
+                }, 200);
+            }
+            if (clickCount >= 3) {
+                setTimeout(explodeHeart, 400);
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
